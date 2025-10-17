@@ -11,4 +11,8 @@ Cv:
 Matched job description:
 {matches}
 
-Provide your assessment:
+Response in JSON format like example below:
+{
+  "score": 92,
+  "reason": "Strong experience with Go, AWS, and microservice architecture."
+}
