@@ -1,88 +1,25 @@
 """LangChain chatbot orchestration backed by the CV matcher tool."""
 
-from typing import Any, Dict, List, Optional, cast
+from types import SimpleNamespace
+from typing import Any, Dict, Optional, cast
 
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.chat_history import InMemoryChatMessageHistory
 from langchain_core.messages import SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables.history import RunnableWithMessageHistory
-from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
 from .config import CHAT_SYSTEM_PROMPT, DEFAULT_CHAT_MODEL, DEFAULT_TEMPERATURE
-from .matcher import match_jobs
+from .tools import (
+    classify_tool_intent_tool,
+    find_relevant_jobs_tool,
+    review_cv_tool,
+)
 
 _chat_histories: Dict[str, InMemoryChatMessageHistory] = {}
 _chat_runnable: Optional[RunnableWithMessageHistory] = None
 _chat_config: Dict[str, Any] = {}
-_intent_classifier_model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-
-
-def _format_matches_for_tool(matches: List[Dict[str, Any]]) -> str:
-    """Format matcher output so the LLM can surface it cleanly to users."""
-    if not matches:
-        return "No matching jobs found for the provided CV."
-
-    lines = []
-    for idx, match in enumerate(matches, 1):
-        similarity = match.get("similarity_score")
-        similarity_display = f"{similarity:.2%}" if isinstance(similarity, (int, float)) else "N/A"
-        lines.append(
-            (
-                f"{idx}. {match.get('title', 'Unknown Title')} at "
-                f"{match.get('company', 'Unknown Company')} "
-                f"(Similarity: {similarity_display})\n"
-                f"   Location: {match.get('location', 'Unknown Location')} | "
-                f"Job ID: {match.get('job_id', 'N/A')}"
-            )
-        )
-    return "\n".join(lines)
-
-
-@tool("find_relevant_jobs_tool")
-def find_relevant_jobs_tool(cv_text: str) -> str:
-    """Use ONLY when the user provides a CV text or asks: 
-'find matching jobs', 'recommend jobs', or 'compare my resume'. 
-Do NOT use this tool for general job discussions or follow-ups."""
-    try:
-        matches = match_jobs(cv_text)
-    except Exception as err:  # Broad catch to ensure the agent sees the failure.
-        return f"Error while matching CV to jobs: {err}"
-    return _format_matches_for_tool(matches)
-
-
-@tool("classify_tool_intent")
-def classify_tool_intent_tool(query: str) -> str:
-    """Inspect the latest user text and return the tool name to execute next.
-
-    Return 'find_relevant_jobs_tool' when the user is sharing a CV/resume or
-    asking for job matching. Return an empty string when no tool is needed.
-    """
-    if not query:
-        return ""
-    system_message = (
-        "You are an intent classifier for a career assistant. Respond with exactly one of:\n"
-        "1. find_relevant_jobs_tool\n"
-        "2. '' (empty string)\n\n"
-        "Return 'find_relevant_jobs_tool' only when the user is sharing a CV/resume, "
-        "asking for job matching, or seeking job recommendations. Return '' for "
-        "general chit-chat, greetings, or anything unrelated to job matching."
-    )
-    result = _intent_classifier_model.invoke(
-        [
-            {"role": "system", "content": system_message},
-            {"role": "user", "content": query},
-        ]
-    )
-    intent = ""
-    if hasattr(result, "content"):
-        intent = str(result.content or "").strip()
-    else:
-        intent = str(result).strip()
-    if intent not in ("find_relevant_jobs_tool", ""):
-        return ""
-    return intent
 
 
 def _get_chat_history(session_id: str) -> InMemoryChatMessageHistory:
@@ -177,32 +114,43 @@ def chat_turn(
     classification_result = classify_tool_intent_tool.invoke({"query": user_input})
     intended_tool = str(classification_result or "").strip()
 
-    runnable = get_chat_runnable(model_name=model_name, temperature=temperature)
     message = user_input
     if cv_text:
         message = f"{user_input}\n\nCandidate CV:\n{cv_text}"
 
-    if intended_tool != "find_relevant_jobs_tool":
-        history = _get_chat_history(session_id)
-        history.add_user_message(message)
-
-        model = ChatOpenAI(
-            model=model_name,
-            temperature=temperature,
+    if intended_tool == "find_relevant_jobs_tool":
+        runnable = get_chat_runnable(model_name=model_name, temperature=temperature)
+        return runnable.invoke(
+            {"input": message},
+            config={"configurable": {"session_id": session_id}},
         )
-        prompt_messages = [SystemMessage(content=CHAT_SYSTEM_PROMPT), *history.messages]
-        response = model.invoke(prompt_messages)
-        if hasattr(response, "content"):
-            reply_text = str(response.content or "").strip()
-        else:
-            reply_text = str(response).strip()
-        history.add_ai_message(reply_text)
+
+    history = _get_chat_history(session_id)
+    history.add_user_message(message)
+
+    if intended_tool == "review_cv_tool":
+        review_source = cv_text if cv_text else user_input
+        review_output = review_cv_tool.invoke({"cv_text": review_source})
+        review_text = str(review_output or "").strip()
+        history.add_ai_message(review_text)
+        action = SimpleNamespace(tool="review_cv_tool", tool_input=review_source)
         return {
-            "output": reply_text,
-            "intermediate_steps": [],
+            "output": review_text,
+            "intermediate_steps": [(action, review_text)],
         }
 
-    return runnable.invoke(
-        {"input": message},
-        config={"configurable": {"session_id": session_id}},
+    model = ChatOpenAI(
+        model=model_name,
+        temperature=temperature,
     )
+    prompt_messages = [SystemMessage(content=CHAT_SYSTEM_PROMPT), *history.messages]
+    response = model.invoke(prompt_messages)
+    if hasattr(response, "content"):
+        reply_text = str(response.content or "").strip()
+    else:
+        reply_text = str(response).strip()
+    history.add_ai_message(reply_text)
+    return {
+        "output": reply_text,
+        "intermediate_steps": [],
+    }
