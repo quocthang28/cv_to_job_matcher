@@ -1,12 +1,13 @@
-"""Entry point exposing the FastAPI app and CLI runner."""
+"""Entry point exposing the FastAPI app."""
 
 from app import app
 
 
 def main() -> None:
-    from app.cli import main as cli_main
+    """Run the FastAPI application with uvicorn."""
+    import uvicorn
 
-    cli_main()
+    uvicorn.run("main:app", host="0.0.0.0", port=8000)
 
 
 if __name__ == "__main__":

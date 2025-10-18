@@ -40,7 +40,9 @@ def _format_matches_for_tool(matches: List[Dict[str, Any]]) -> str:
 
 @tool("find_relevant_jobs")
 def find_relevant_jobs_tool(cv_text: str) -> str:
-    """LangChain tool that runs the matcher and returns human-readable summaries."""
+    """Use ONLY when the user provides a CV text or asks: 
+'find matching jobs', 'recommend jobs', or 'compare my resume'. 
+Do NOT use this tool for general job discussions or follow-ups."""
     try:
         matches = match_jobs(cv_text)
     except Exception as err:  # Broad catch to ensure the agent sees the failure.
