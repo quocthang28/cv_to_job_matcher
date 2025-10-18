@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional, cast
 
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.chat_history import InMemoryChatMessageHistory
+from langchain_core.messages import SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.tools import tool
@@ -15,6 +16,7 @@ from .matcher import match_jobs
 _chat_histories: Dict[str, InMemoryChatMessageHistory] = {}
 _chat_runnable: Optional[RunnableWithMessageHistory] = None
 _chat_config: Dict[str, Any] = {}
+_intent_classifier_model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
 
 def _format_matches_for_tool(matches: List[Dict[str, Any]]) -> str:
@@ -38,7 +40,7 @@ def _format_matches_for_tool(matches: List[Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-@tool("find_relevant_jobs")
+@tool("find_relevant_jobs_tool")
 def find_relevant_jobs_tool(cv_text: str) -> str:
     """Use ONLY when the user provides a CV text or asks: 
 'find matching jobs', 'recommend jobs', or 'compare my resume'. 
@@ -48,6 +50,39 @@ Do NOT use this tool for general job discussions or follow-ups."""
     except Exception as err:  # Broad catch to ensure the agent sees the failure.
         return f"Error while matching CV to jobs: {err}"
     return _format_matches_for_tool(matches)
+
+
+@tool("classify_tool_intent")
+def classify_tool_intent_tool(query: str) -> str:
+    """Inspect the latest user text and return the tool name to execute next.
+
+    Return 'find_relevant_jobs_tool' when the user is sharing a CV/resume or
+    asking for job matching. Return an empty string when no tool is needed.
+    """
+    if not query:
+        return ""
+    system_message = (
+        "You are an intent classifier for a career assistant. Respond with exactly one of:\n"
+        "1. find_relevant_jobs_tool\n"
+        "2. '' (empty string)\n\n"
+        "Return 'find_relevant_jobs_tool' only when the user is sharing a CV/resume, "
+        "asking for job matching, or seeking job recommendations. Return '' for "
+        "general chit-chat, greetings, or anything unrelated to job matching."
+    )
+    result = _intent_classifier_model.invoke(
+        [
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": query},
+        ]
+    )
+    intent = ""
+    if hasattr(result, "content"):
+        intent = str(result.content or "").strip()
+    else:
+        intent = str(result).strip()
+    if intent not in ("find_relevant_jobs_tool", ""):
+        return ""
+    return intent
 
 
 def _get_chat_history(session_id: str) -> InMemoryChatMessageHistory:
@@ -139,10 +174,33 @@ def chat_turn(
     if not session_id:
         raise ValueError("A session_id is required for chat turns.")
 
+    classification_result = classify_tool_intent_tool.invoke({"query": user_input})
+    intended_tool = str(classification_result or "").strip()
+
     runnable = get_chat_runnable(model_name=model_name, temperature=temperature)
     message = user_input
     if cv_text:
         message = f"{user_input}\n\nCandidate CV:\n{cv_text}"
+
+    if intended_tool != "find_relevant_jobs_tool":
+        history = _get_chat_history(session_id)
+        history.add_user_message(message)
+
+        model = ChatOpenAI(
+            model=model_name,
+            temperature=temperature,
+        )
+        prompt_messages = [SystemMessage(content=CHAT_SYSTEM_PROMPT), *history.messages]
+        response = model.invoke(prompt_messages)
+        if hasattr(response, "content"):
+            reply_text = str(response.content or "").strip()
+        else:
+            reply_text = str(response).strip()
+        history.add_ai_message(reply_text)
+        return {
+            "output": reply_text,
+            "intermediate_steps": [],
+        }
 
     return runnable.invoke(
         {"input": message},
