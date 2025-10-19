@@ -8,12 +8,11 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 
-from .config import DEFAULT_TOP_K, PERSIST_DIR
-from .jobs import load_job_descriptions
+from ..config import DEFAULT_TOP_K, PERSIST_DIR
+from ..jobs import load_job_descriptions
 
 _matcher_instance: Optional["CVJobMatcher"] = None
 _matcher_jobs: List[Dict[str, Optional[str]]] = []
-
 
 class CVJobMatcher:
     """Encapsulates vector-store creation and similarity search against job data."""

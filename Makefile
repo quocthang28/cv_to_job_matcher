@@ -3,15 +3,18 @@ VENV_DIR ?= .venv
 UVICORN_APP ?= app.api:app
 UVICORN_HOST ?= 0.0.0.0
 UVICORN_PORT ?= 8000
+MOCK_BACKEND_APP ?= app.mock_backend:app
+MOCK_BACKEND_PORT ?= 8080
 DOCKER_COMPOSE ?= docker compose
 
-.PHONY: help venv dev docker-up docker-down docker-logs activate clean
+.PHONY: help venv dev mock-backend docker-up docker-down docker-logs activate clean
 
 help:
 	@echo "Available targets:"
 	@echo "  make venv        Create virtual environment and install dependencies"
 	@echo "  make activate    Open a subshell with the virtualenv activated"
 	@echo "  make dev         Run the FastAPI app locally with uvicorn"
+	@echo "  make mock-backend Start the mock backend service with uvicorn"
 	@echo "  make docker-up   Build and start the docker compose stack"
 	@echo "  make docker-down Stop the docker compose stack"
 	@echo "  make docker-logs Follow logs from the docker compose stack"
@@ -31,6 +34,9 @@ activate: venv
 
 dev: venv
 	$(VENV_DIR)/bin/uvicorn $(UVICORN_APP) --reload --host $(UVICORN_HOST) --port $(UVICORN_PORT)
+
+mock-backend: venv
+	$(VENV_DIR)/bin/uvicorn $(MOCK_BACKEND_APP) --reload --host $(UVICORN_HOST) --port $(MOCK_BACKEND_PORT)
 
 docker-up:
 	$(DOCKER_COMPOSE) up --build

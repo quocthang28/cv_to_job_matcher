@@ -1,18 +1,16 @@
 """FastAPI surface for the CV matcher chatbot."""
 
 from typing import Any, Dict, List, Optional
-from uuid import uuid4
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from .chatbot import chat_turn
 from .config import DEFAULT_CHAT_MODEL, DEFAULT_TEMPERATURE
-from .jobs import extract_uploaded_cv_text, load_job_descriptions
-from .matcher import init_matcher, jobs_indexed, matcher_ready
+from .jobs import load_job_descriptions
+from .semantic_search import init_matcher, jobs_indexed, matcher_ready
 
 app = FastAPI(title="CV Matcher Chatbot")
-_cv_store: Dict[str, str] = {}
 
 
 class InitRequest(BaseModel):
@@ -24,22 +22,15 @@ class InitResponse(BaseModel):
     vector_store_path: str
 
 
-class UploadResponse(BaseModel):
-    cv_id: str
-    filename: Optional[str]
-    char_length: int
-
-
 class ChatRequest(BaseModel):
-    session_id: str
+    user_id: str
     message: str
-    cv_id: Optional[str] = None
     model_name: Optional[str] = None
     temperature: Optional[float] = None
 
 
 class ChatResponse(BaseModel):
-    session_id: str
+    user_id: str
     reply: str
     intermediate_steps: Optional[List[Dict[str, Any]]] = None
 
@@ -87,43 +78,16 @@ def init_endpoint(request: InitRequest) -> InitResponse:
     )
 
 
-@app.post("/upload", response_model=UploadResponse)
-async def upload_cv(file: UploadFile = File(...)) -> UploadResponse:
-    """Persist uploaded CV text in memory and return a reference id."""
-    content = await file.read()
-    if not content:
-        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
-
-    try:
-        text = extract_uploaded_cv_text(content, file.filename)
-    except (ValueError, ImportError) as err:
-        raise HTTPException(status_code=400, detail=str(err)) from err
-
-    cv_id = str(uuid4())
-    _cv_store[cv_id] = text
-    return UploadResponse(
-        cv_id=cv_id,
-        filename=file.filename,
-        char_length=len(text),
-    )
-
-
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest) -> ChatResponse:
-    """Handle a chat turn, optionally enriching the input with an uploaded CV."""
-    cv_text = None
-    if request.cv_id:
-        cv_text = _cv_store.get(request.cv_id)
-        if cv_text is None:
-            raise HTTPException(status_code=404, detail="CV id not found.")
+    """Handle a chat turn for a given user."""
 
     try:
         result = chat_turn(
             request.message,
-            session_id=request.session_id,
+            user_id=request.user_id,
             model_name=request.model_name or DEFAULT_CHAT_MODEL,
             temperature=DEFAULT_TEMPERATURE if request.temperature is None else request.temperature,
-            cv_text=cv_text,
         )
     except ValueError as err:
         raise HTTPException(status_code=400, detail=str(err)) from err
@@ -144,7 +108,7 @@ async def chat_endpoint(request: ChatRequest) -> ChatResponse:
 
     reply = str(result.get("output", "")).strip()
     return ChatResponse(
-        session_id=request.session_id,
+        user_id=request.user_id,
         reply=reply,
         intermediate_steps=intermediate_steps or None,
     )

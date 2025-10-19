@@ -1,5 +1,6 @@
 """Shared configuration and constants for the CV matcher service."""
 
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
@@ -12,6 +13,8 @@ load_dotenv()
 
 PERSIST_DIR = Path("job_vectorstore")
 REVIEW_INSTRUCTIONS_PATH = Path("review_instructions.md")
+
+MOCK_BACKEND_URL = os.getenv("MOCK_BACKEND_URL", "http://localhost:8080")
 
 DEFAULT_CHAT_MODEL = "gpt-4o-mini"
 DEFAULT_TEMPERATURE = 0.2

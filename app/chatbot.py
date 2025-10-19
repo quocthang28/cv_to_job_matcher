@@ -12,16 +12,30 @@ from .tools import (
     classify_tool_intent_tool,
     find_relevant_jobs_tool,
     review_cv_tool,
+    upload_cv_tool,
 )
 
 _chat_histories: Dict[str, InMemoryChatMessageHistory] = {}
+_user_cv_store: Dict[str, Optional[str]] = {}
 
 
-def _get_chat_history(session_id: str) -> InMemoryChatMessageHistory:
-    """Return per-session memory storage for the chatbot."""
-    if session_id not in _chat_histories:
-        _chat_histories[session_id] = InMemoryChatMessageHistory()
-    return _chat_histories[session_id]
+def _get_chat_history(user_id: str) -> InMemoryChatMessageHistory:
+    """Return per-user memory storage for the chatbot."""
+    if user_id not in _chat_histories:
+        _chat_histories[user_id] = InMemoryChatMessageHistory()
+    return _chat_histories[user_id]
+
+
+def _store_user_cv(user_id: str, cv_text: Optional[str]) -> None:
+    """Persist the most recent CV associated with a user."""
+    if not cv_text:
+        return
+    _user_cv_store[user_id] = cv_text
+
+
+def _get_user_cv_text(user_id: str) -> Optional[str]:
+    """Retrieve previously stored CV text for the user."""
+    return _user_cv_store.get(user_id)
 
 
 def _stringify_content(content: Any) -> str:
@@ -62,11 +76,20 @@ def _ensure_cv_text(source: Optional[str]) -> Optional[str]:
 def _handle_job_search(
     *,
     history: InMemoryChatMessageHistory,
+    user_id: str,
     cv_text: Optional[str],
     user_input: str,
 ) -> Dict[str, Any]:
     """Invoke the matching tool when a CV is present."""
-    tool_source = _ensure_cv_text(cv_text) or _ensure_cv_text(user_input)
+    tool_source = _ensure_cv_text(cv_text)
+    used_stored_cv = False
+    if tool_source is None:
+        stored_cv = _ensure_cv_text(_get_user_cv_text(user_id))
+        if stored_cv is not None:
+            tool_source = stored_cv
+            used_stored_cv = True
+    if tool_source is None:
+        tool_source = _ensure_cv_text(user_input)
     if tool_source is None:
         reply_text = (
             "I need a CV or resume text to recommend relevant jobs. "
@@ -81,7 +104,9 @@ def _handle_job_search(
     tool_result = find_relevant_jobs_tool.invoke({"cv_text": tool_source})
     reply_text = _stringify_content(tool_result)
     history.add_ai_message(reply_text)
-    tool_input_label = "uploaded_cv_text" if cv_text else "user_message_cv"
+    tool_input_label = (
+        "stored_user_cv_text" if used_stored_cv or _ensure_cv_text(cv_text) else "user_message_cv"
+    )
     action = SimpleNamespace(tool="find_relevant_jobs_tool", tool_input=tool_input_label)
     return {
         "output": reply_text,
@@ -92,15 +117,26 @@ def _handle_job_search(
 def _handle_cv_review(
     *,
     history: InMemoryChatMessageHistory,
+    user_id: str,
     cv_text: Optional[str],
     user_input: str,
 ) -> Dict[str, Any]:
     """Invoke the review tool and capture the response."""
-    review_source = cv_text if _ensure_cv_text(cv_text) else user_input
+    review_source = _ensure_cv_text(cv_text)
+    used_stored_cv = False
+    if review_source is None:
+        stored_cv = _ensure_cv_text(_get_user_cv_text(user_id))
+        if stored_cv is not None:
+            review_source = stored_cv
+            used_stored_cv = True
+    if review_source is None:
+        review_source = user_input
     review_output = review_cv_tool.invoke({"cv_text": review_source})
     review_text = str(review_output or "").strip()
     history.add_ai_message(review_text)
-    review_input_label = "uploaded_cv_text" if cv_text else "user_message_cv"
+    review_input_label = (
+        "stored_user_cv_text" if used_stored_cv or _ensure_cv_text(cv_text) else "user_message_cv"
+    )
     action = SimpleNamespace(tool="review_cv_tool", tool_input=review_input_label)
     return {
         "output": review_text,
@@ -132,10 +168,45 @@ def _handle_free_chat(
     }
 
 
+def _handle_cv_upload(
+    *,
+    history: InMemoryChatMessageHistory,
+    user_id: str,
+    fallback_cv_text: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Fetch and store CV content via the upload tool, returning the summary response."""
+    tool_result = upload_cv_tool.invoke({"user_id": user_id})
+
+    message_text: str
+    cv_text: Optional[str] = None
+
+    if isinstance(tool_result, dict):
+        message_text = _stringify_content(tool_result.get("message"))
+        cv_text = _ensure_cv_text(tool_result.get("cv_text"))
+    else:
+        message_text = _stringify_content(tool_result)
+
+    if not cv_text and fallback_cv_text:
+        cv_text = _ensure_cv_text(fallback_cv_text)
+
+    if cv_text:
+        _store_user_cv(user_id, cv_text)
+
+    reply_text = message_text or (
+        "I attempted to load your CV but did not receive a response from the backend."
+    )
+    history.add_ai_message(reply_text)
+    action = SimpleNamespace(tool="upload_cv_tool", tool_input=user_id)
+    return {
+        "output": reply_text,
+        "intermediate_steps": [(action, reply_text)],
+    }
+
+
 def chat_turn(
     user_input: str,
     *,
-    session_id: str,
+    user_id: str,
     model_name: str = DEFAULT_CHAT_MODEL,
     temperature: float = DEFAULT_TEMPERATURE,
     cv_text: Optional[str] = None,
@@ -145,24 +216,47 @@ def chat_turn(
 
     Args:
         user_input: Latest user message.
-        session_id: Conversation identifier used for memory storage.
+        user_id: Identifier used for user-scoped memory storage.
         model_name: Chat model to use for this turn.
         temperature: Sampling temperature.
+        cv_text: Optional CV text provided directly with the request.
 
     Returns:
         Agent executor output dictionary (contains `output` and any tool traces).
     """
-    if not session_id:
-        raise ValueError("A session_id is required for chat turns.")
+    if not user_id:
+        raise ValueError("A user_id is required for chat turns.")
 
-    history = _get_chat_history(session_id)
+    history = _get_chat_history(user_id)
     history.add_user_message(user_input)
 
+    provided_cv_text = _ensure_cv_text(cv_text)
+    if provided_cv_text:
+        _store_user_cv(user_id, provided_cv_text)
+
+    stored_cv_text = _get_user_cv_text(user_id)
+
     intended_tool = _classify_intent(user_input)
+    if intended_tool == "upload_cv_tool":
+        return _handle_cv_upload(
+            history=history,
+            user_id=user_id,
+            fallback_cv_text=stored_cv_text,
+        )
     if intended_tool == "find_relevant_jobs_tool":
-        return _handle_job_search(history=history, cv_text=cv_text, user_input=user_input)
+        return _handle_job_search(
+            history=history,
+            user_id=user_id,
+            cv_text=stored_cv_text,
+            user_input=user_input,
+        )
     if intended_tool == "review_cv_tool":
-        return _handle_cv_review(history=history, cv_text=cv_text, user_input=user_input)
+        return _handle_cv_review(
+            history=history,
+            user_id=user_id,
+            cv_text=stored_cv_text,
+            user_input=user_input,
+        )
 
     return _handle_free_chat(
         history=history,
