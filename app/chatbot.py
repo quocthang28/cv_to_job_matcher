@@ -1,18 +1,10 @@
 """LangChain chatbot orchestration backed by the CV matcher tool."""
 
-import json
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, Optional
 
-from langchain.agents import create_agent
 from langchain_core.chat_history import InMemoryChatMessageHistory
-from langchain_core.messages import (
-    AIMessage,
-    BaseMessage,
-    HumanMessage,
-    SystemMessage,
-    ToolMessage,
-)
+from langchain_core.messages import SystemMessage
 from langchain_openai import ChatOpenAI
 
 from .config import CHAT_SYSTEM_PROMPT, DEFAULT_CHAT_MODEL, DEFAULT_TEMPERATURE
@@ -23,8 +15,6 @@ from .tools import (
 )
 
 _chat_histories: Dict[str, InMemoryChatMessageHistory] = {}
-_chat_agent: Optional[Any] = None
-_chat_config: Dict[str, Any] = {}
 
 
 def _get_chat_history(session_id: str) -> InMemoryChatMessageHistory:
@@ -34,56 +24,12 @@ def _get_chat_history(session_id: str) -> InMemoryChatMessageHistory:
     return _chat_histories[session_id]
 
 
-def get_chat_runnable(
-    *,
-    model_name: str = DEFAULT_CHAT_MODEL,
-    temperature: float = DEFAULT_TEMPERATURE,
-) -> Any:
-    """
-    Build (or reuse) a LangChain agent graph with tool-calling support.
-
-    Args:
-        model_name: OpenAI chat model identifier.
-        temperature: Sampling temperature for the chat model.
-
-    Returns:
-        Compiled agent graph configured for session-based conversations.
-    """
-    global _chat_agent, _chat_config
-
-    cached = (
-        _chat_agent is not None
-        and _chat_config.get("model_name") == model_name
-        and _chat_config.get("temperature") == temperature
-    )
-    if cached:
-        return _chat_agent
-
-    tools = [find_relevant_jobs_tool]
-
-    model = ChatOpenAI(
-        model=model_name,
-        temperature=temperature,
-    )
-
-    agent = create_agent(
-        model=model,
-        tools=tools,
-        system_prompt=CHAT_SYSTEM_PROMPT,
-    )
-
-    _chat_agent = agent
-    _chat_config = {"model_name": model_name, "temperature": temperature}
-
-    return agent
-
-
 def _stringify_content(content: Any) -> str:
     """Normalize message content (string or content blocks) to plain text."""
     if isinstance(content, str):
         return content.strip()
     if isinstance(content, list):
-        parts: List[str] = []
+        parts = []
         for block in content:
             if isinstance(block, str):
                 parts.append(block)
@@ -97,39 +43,93 @@ def _stringify_content(content: Any) -> str:
     return str(content or "").strip()
 
 
-def _build_intermediate_steps(
-    new_messages: Sequence[BaseMessage],
-) -> List[Any]:
-    """Create intermediate step tuples from newly generated tool messages."""
-    steps: List[Any] = []
-    tool_call_details: Dict[str, Dict[str, Any]] = {}
+def _classify_intent(user_input: str) -> str:
+    """Use the lightweight classifier tool to decide which branch to follow."""
+    if not user_input:
+        return ""
+    classification_result = classify_tool_intent_tool.invoke({"query": user_input})
+    return str(classification_result or "").strip()
 
-    for message in new_messages:
-        if isinstance(message, AIMessage):
-            for call in message.tool_calls or []:
-                if not call:
-                    continue
-                call_id = call.get("id") or ""
-                tool_call_details[call_id] = {
-                    "name": call.get("name") or "unknown_tool",
-                    "args": call.get("args"),
-                }
-        elif isinstance(message, ToolMessage):
-            tool_info = tool_call_details.get(message.tool_call_id, {})
-            tool_name = tool_info.get("name") or message.name or "unknown_tool"
-            raw_args = tool_info.get("args")
-            if isinstance(raw_args, (str, int, float, bool)) or raw_args is None:
-                tool_input = "" if raw_args is None else str(raw_args)
-            else:
-                tool_input = json.dumps(raw_args)
-            steps.append(
-                (
-                    SimpleNamespace(tool=tool_name, tool_input=tool_input),
-                    _stringify_content(message.content),
-                )
-            )
 
-    return steps
+def _ensure_cv_text(source: Optional[str]) -> Optional[str]:
+    """Return a sanitized CV text string or None when unusable."""
+    if not source:
+        return None
+    text = source.strip()
+    return text or None
+
+
+def _handle_job_search(
+    *,
+    history: InMemoryChatMessageHistory,
+    cv_text: Optional[str],
+    user_input: str,
+) -> Dict[str, Any]:
+    """Invoke the matching tool when a CV is present."""
+    tool_source = _ensure_cv_text(cv_text) or _ensure_cv_text(user_input)
+    if tool_source is None:
+        reply_text = (
+            "I need a CV or resume text to recommend relevant jobs. "
+            "Please upload your CV or paste the text so I can help."
+        )
+        history.add_ai_message(reply_text)
+        return {
+            "output": reply_text,
+            "intermediate_steps": [],
+        }
+
+    tool_result = find_relevant_jobs_tool.invoke({"cv_text": tool_source})
+    reply_text = _stringify_content(tool_result)
+    history.add_ai_message(reply_text)
+    tool_input_label = "uploaded_cv_text" if cv_text else "user_message_cv"
+    action = SimpleNamespace(tool="find_relevant_jobs_tool", tool_input=tool_input_label)
+    return {
+        "output": reply_text,
+        "intermediate_steps": [(action, reply_text)],
+    }
+
+
+def _handle_cv_review(
+    *,
+    history: InMemoryChatMessageHistory,
+    cv_text: Optional[str],
+    user_input: str,
+) -> Dict[str, Any]:
+    """Invoke the review tool and capture the response."""
+    review_source = cv_text if _ensure_cv_text(cv_text) else user_input
+    review_output = review_cv_tool.invoke({"cv_text": review_source})
+    review_text = str(review_output or "").strip()
+    history.add_ai_message(review_text)
+    review_input_label = "uploaded_cv_text" if cv_text else "user_message_cv"
+    action = SimpleNamespace(tool="review_cv_tool", tool_input=review_input_label)
+    return {
+        "output": review_text,
+        "intermediate_steps": [(action, review_text)],
+    }
+
+
+def _handle_free_chat(
+    *,
+    history: InMemoryChatMessageHistory,
+    model_name: str,
+    temperature: float,
+) -> Dict[str, Any]:
+    """Fallback branch that routes to the general chat model."""
+    model = ChatOpenAI(
+        model=model_name,
+        temperature=temperature,
+    )
+    prompt_messages = [SystemMessage(content=CHAT_SYSTEM_PROMPT), *history.messages]
+    response = model.invoke(prompt_messages)
+    if hasattr(response, "content"):
+        reply_text = str(response.content or "").strip()
+    else:
+        reply_text = str(response).strip()
+    history.add_ai_message(reply_text)
+    return {
+        "output": reply_text,
+        "intermediate_steps": [],
+    }
 
 
 def chat_turn(
@@ -155,83 +155,17 @@ def chat_turn(
     if not session_id:
         raise ValueError("A session_id is required for chat turns.")
 
-    classification_result = classify_tool_intent_tool.invoke({"query": user_input})
-    intended_tool = str(classification_result or "").strip()
-
-    message = user_input
-    if cv_text:
-        message = f"{user_input}\n\nCandidate CV:\n{cv_text}"
-
     history = _get_chat_history(session_id)
+    history.add_user_message(user_input)
 
+    intended_tool = _classify_intent(user_input)
     if intended_tool == "find_relevant_jobs_tool":
-        agent = get_chat_runnable(model_name=model_name, temperature=temperature)
-        prior_messages = list(history.messages)
-        user_message = HumanMessage(content=message)
-        conversation: List[BaseMessage] = prior_messages + [user_message]
-
-        try:
-            agent_result = agent.invoke({"messages": conversation})
-        except Exception:
-            # Preserve history on failure before re-raising.
-            history.messages = prior_messages
-            raise
-
-        messages: List[BaseMessage]
-        if isinstance(agent_result, dict):
-            state_messages = agent_result.get("messages", [])
-            if not isinstance(state_messages, Sequence):
-                raise ValueError("Agent response missing message history.")
-            messages = list(state_messages)
-        elif isinstance(agent_result, Sequence):
-            messages = list(agent_result)
-        else:
-            raise ValueError("Agent response missing message history.")
-
-        if not messages:
-            messages = conversation
-
-        new_messages = messages[len(conversation) :]
-        intermediate_steps = _build_intermediate_steps(new_messages)
-
-        history.messages = messages
-
-        reply_text = ""
-        for msg in reversed(messages):
-            if isinstance(msg, AIMessage):
-                reply_text = _stringify_content(msg.content)
-                break
-
-        return {
-            "output": reply_text,
-            "intermediate_steps": intermediate_steps,
-        }
-
-    history.add_user_message(message)
-
+        return _handle_job_search(history=history, cv_text=cv_text, user_input=user_input)
     if intended_tool == "review_cv_tool":
-        review_source = cv_text if cv_text else user_input
-        review_output = review_cv_tool.invoke({"cv_text": review_source})
-        review_text = str(review_output or "").strip()
-        history.add_ai_message(review_text)
-        action = SimpleNamespace(tool="review_cv_tool", tool_input=review_source)
-        return {
-            "output": review_text,
-            "intermediate_steps": [(action, review_text)],
-        }
+        return _handle_cv_review(history=history, cv_text=cv_text, user_input=user_input)
 
-    model = ChatOpenAI(
-        model=model_name,
+    return _handle_free_chat(
+        history=history,
+        model_name=model_name,
         temperature=temperature,
     )
-    prompt_messages = [SystemMessage(content=CHAT_SYSTEM_PROMPT), *history.messages]
-    response = model.invoke(prompt_messages)
-    if hasattr(response, "content"):
-        reply_text = str(response.content or "").strip()
-    else:
-        reply_text = str(response).strip()
-    history.add_ai_message(reply_text)
-    return {
-        "output": reply_text,
-        "intermediate_steps": [],
-    }

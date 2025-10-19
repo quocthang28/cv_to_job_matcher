@@ -2,16 +2,15 @@
 
 from typing import Any, Dict, List, Optional
 
-from langchain_openai import ChatOpenAI
-
+from .config import get_chat_model
 from .jobs import load_review_instructions
 
 
 def assess_matches(
     cv_text: str,
     matches: List[Dict[str, Optional[str]]],
-    model: Optional[str] = "gpt-4o-mini",
-    temperature: float = 0.2,
+    model: Optional[str] = None,
+    temperature: Optional[float] = None,
 ) -> Optional[str]:
     """Use OpenAI to generate a qualitative match assessment."""
     match_sections: List[str] = []
@@ -48,10 +47,7 @@ def assess_matches(
     )
 
     try:
-        client = ChatOpenAI(
-            model=model,
-            temperature=temperature,
-        )
+        client = get_chat_model(model_name=model, temperature=temperature)
         response: Any = client.invoke(prompt)
 
         # Parse the response

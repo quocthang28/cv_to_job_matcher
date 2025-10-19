@@ -1,10 +1,8 @@
 """Shared LangChain tool definitions for the chatbot."""
 
-from typing import Any, Dict, List
-
 from langchain_core.tools import tool
-from langchain_openai import ChatOpenAI
 
+from .config import get_cv_reviewer_model, get_intent_classifier_model
 from .matcher import match_jobs
 
 __all__ = [
@@ -12,9 +10,6 @@ __all__ = [
     "review_cv_tool",
     "classify_tool_intent_tool",
 ]
-
-_intent_classifier_model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-_cv_reviewer_model = ChatOpenAI(model="gpt-4o-mini", temperature=0.4)
 
 
 @tool("find_relevant_jobs_tool")
@@ -59,7 +54,8 @@ def review_cv_tool(cv_text: str) -> str:
         "improve (structure, clarity, impact, keywords), and suggest any tailoring "
         "ideas for job applications. Keep tone supportive and professional."
     )
-    result = _cv_reviewer_model.invoke(
+    model = get_cv_reviewer_model()
+    result = model.invoke(
         [
             {"role": "system", "content": system_message},
             {"role": "user", "content": cv_text},
@@ -92,7 +88,8 @@ def classify_tool_intent_tool(query: str) -> str:
         "Return '' for general chit-chat, greetings, or anything unrelated to job matching "
         "or resume reviews."
     )
-    result = _intent_classifier_model.invoke(
+    model = get_intent_classifier_model()
+    result = model.invoke(
         [
             {"role": "system", "content": system_message},
             {"role": "user", "content": query},
