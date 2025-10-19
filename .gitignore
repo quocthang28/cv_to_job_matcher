@@ -15,6 +15,7 @@ job_vectorstore/
 venv/
 env/
 ENV/
+.venv/
 
 # IDE
 .vscode/
@@ -26,3 +27,21 @@ ENV/
 # OS
 .DS_Store
 Thumbs.db
+.Trash-*
+
+# Python tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+*.manifest
+
+# Coverage
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+nosetests.xml
+
+# Notebook checkpoints
+.ipynb_checkpoints/

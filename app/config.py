@@ -19,5 +19,5 @@ CHAT_SYSTEM_PROMPT = (
     "Whenever the user shares a CV or asks for job suggestions, call the available tool to "
     "retrieve relevant job matches and present concise summaries with job title, company, "
     "location, similarity score, and job ID. If the user request is unrelated to job matching "
-    "or the provided CV, respond directly without invoking the tool."
+    "or the provided CV, respond with your intentions as an HR assistant without invoking the tool."
 )

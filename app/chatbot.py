@@ -1,13 +1,18 @@
 """LangChain chatbot orchestration backed by the CV matcher tool."""
 
+import json
 from types import SimpleNamespace
-from typing import Any, Dict, Optional, cast
+from typing import Any, Dict, List, Optional, Sequence
 
-from langchain.agents import AgentExecutor, create_tool_calling_agent
+from langchain.agents import create_agent
 from langchain_core.chat_history import InMemoryChatMessageHistory
-from langchain_core.messages import SystemMessage
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.runnables.history import RunnableWithMessageHistory
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 from langchain_openai import ChatOpenAI
 
 from .config import CHAT_SYSTEM_PROMPT, DEFAULT_CHAT_MODEL, DEFAULT_TEMPERATURE
@@ -18,7 +23,7 @@ from .tools import (
 )
 
 _chat_histories: Dict[str, InMemoryChatMessageHistory] = {}
-_chat_runnable: Optional[RunnableWithMessageHistory] = None
+_chat_agent: Optional[Any] = None
 _chat_config: Dict[str, Any] = {}
 
 
@@ -33,59 +38,98 @@ def get_chat_runnable(
     *,
     model_name: str = DEFAULT_CHAT_MODEL,
     temperature: float = DEFAULT_TEMPERATURE,
-) -> RunnableWithMessageHistory:
+) -> Any:
     """
-    Build (or reuse) a LangChain runnable with tool-calling and memory support.
+    Build (or reuse) a LangChain agent graph with tool-calling support.
 
     Args:
         model_name: OpenAI chat model identifier.
         temperature: Sampling temperature for the chat model.
 
     Returns:
-        RunnableWithMessageHistory configured for session-based conversations.
+        Compiled agent graph configured for session-based conversations.
     """
-    global _chat_runnable, _chat_config
+    global _chat_agent, _chat_config
 
     cached = (
-        _chat_runnable is not None
+        _chat_agent is not None
         and _chat_config.get("model_name") == model_name
         and _chat_config.get("temperature") == temperature
     )
     if cached:
-        return cast(RunnableWithMessageHistory, _chat_runnable)
+        return _chat_agent
 
     tools = [find_relevant_jobs_tool]
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            ("system", CHAT_SYSTEM_PROMPT),
-            MessagesPlaceholder("chat_history"),
-            ("human", "{input}"),
-            MessagesPlaceholder("agent_scratchpad"),
-        ]
-    )
 
     model = ChatOpenAI(
         model=model_name,
         temperature=temperature,
     )
-    agent = create_tool_calling_agent(model, tools, prompt)
-    executor = AgentExecutor(
-        agent=agent,
+
+    agent = create_agent(
+        model=model,
         tools=tools,
-        verbose=False,
-        return_intermediate_steps=True,
+        system_prompt=CHAT_SYSTEM_PROMPT,
     )
 
-    _chat_runnable = RunnableWithMessageHistory(
-        executor,
-        lambda session_id: _get_chat_history(session_id),
-        input_messages_key="input",
-        history_messages_key="chat_history",
-        output_messages_key="output",
-    )
+    _chat_agent = agent
     _chat_config = {"model_name": model_name, "temperature": temperature}
 
-    return cast(RunnableWithMessageHistory, _chat_runnable)
+    return agent
+
+
+def _stringify_content(content: Any) -> str:
+    """Normalize message content (string or content blocks) to plain text."""
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts: List[str] = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict):
+                text = block.get("text")
+                if text:
+                    parts.append(str(text))
+            else:
+                parts.append(str(block))
+        return "\n".join(part for part in parts if part).strip()
+    return str(content or "").strip()
+
+
+def _build_intermediate_steps(
+    new_messages: Sequence[BaseMessage],
+) -> List[Any]:
+    """Create intermediate step tuples from newly generated tool messages."""
+    steps: List[Any] = []
+    tool_call_details: Dict[str, Dict[str, Any]] = {}
+
+    for message in new_messages:
+        if isinstance(message, AIMessage):
+            for call in message.tool_calls or []:
+                if not call:
+                    continue
+                call_id = call.get("id") or ""
+                tool_call_details[call_id] = {
+                    "name": call.get("name") or "unknown_tool",
+                    "args": call.get("args"),
+                }
+        elif isinstance(message, ToolMessage):
+            tool_info = tool_call_details.get(message.tool_call_id, {})
+            tool_name = tool_info.get("name") or message.name or "unknown_tool"
+            raw_args = tool_info.get("args")
+            if isinstance(raw_args, (str, int, float, bool)) or raw_args is None:
+                tool_input = "" if raw_args is None else str(raw_args)
+            else:
+                tool_input = json.dumps(raw_args)
+            steps.append(
+                (
+                    SimpleNamespace(tool=tool_name, tool_input=tool_input),
+                    _stringify_content(message.content),
+                )
+            )
+
+    return steps
 
 
 def chat_turn(
@@ -118,14 +162,51 @@ def chat_turn(
     if cv_text:
         message = f"{user_input}\n\nCandidate CV:\n{cv_text}"
 
-    if intended_tool == "find_relevant_jobs_tool":
-        runnable = get_chat_runnable(model_name=model_name, temperature=temperature)
-        return runnable.invoke(
-            {"input": message},
-            config={"configurable": {"session_id": session_id}},
-        )
-
     history = _get_chat_history(session_id)
+
+    if intended_tool == "find_relevant_jobs_tool":
+        agent = get_chat_runnable(model_name=model_name, temperature=temperature)
+        prior_messages = list(history.messages)
+        user_message = HumanMessage(content=message)
+        conversation: List[BaseMessage] = prior_messages + [user_message]
+
+        try:
+            agent_result = agent.invoke({"messages": conversation})
+        except Exception:
+            # Preserve history on failure before re-raising.
+            history.messages = prior_messages
+            raise
+
+        messages: List[BaseMessage]
+        if isinstance(agent_result, dict):
+            state_messages = agent_result.get("messages", [])
+            if not isinstance(state_messages, Sequence):
+                raise ValueError("Agent response missing message history.")
+            messages = list(state_messages)
+        elif isinstance(agent_result, Sequence):
+            messages = list(agent_result)
+        else:
+            raise ValueError("Agent response missing message history.")
+
+        if not messages:
+            messages = conversation
+
+        new_messages = messages[len(conversation) :]
+        intermediate_steps = _build_intermediate_steps(new_messages)
+
+        history.messages = messages
+
+        reply_text = ""
+        for msg in reversed(messages):
+            if isinstance(msg, AIMessage):
+                reply_text = _stringify_content(msg.content)
+                break
+
+        return {
+            "output": reply_text,
+            "intermediate_steps": intermediate_steps,
+        }
+
     history.add_user_message(message)
 
     if intended_tool == "review_cv_tool":

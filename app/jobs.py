@@ -2,9 +2,33 @@
 
 import re
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Dict, List, Optional, Tuple
 
 from .config import REVIEW_INSTRUCTIONS_PATH
+
+try:  # PyPDFLoader ships with langchain-community; guard for safety.
+    from langchain_community.document_loaders import PyPDFLoader
+except ImportError:  # pragma: no cover - fallback handled at runtime.
+    PyPDFLoader = None  # type: ignore[assignment]
+
+
+def _load_text_content(path: Path) -> str:
+    """Extract text from Markdown or PDF documents."""
+    suffix = path.suffix.lower()
+    if suffix == ".pdf":
+        if PyPDFLoader is None:
+            raise ImportError(
+                "PyPDFLoader is required to process PDF files but is not installed."
+            )
+        loader = PyPDFLoader(str(path))
+        documents = loader.load()
+        return "\n\n".join(
+            doc.page_content.strip() for doc in documents if doc.page_content.strip()
+        )
+
+    # Default to UTF-8 text read (Markdown and other plain-text content).
+    return path.read_text(encoding="utf-8")
 
 
 def load_job_descriptions(base_dir: Path = Path("jd")) -> List[Dict[str, Optional[str]]]:
@@ -48,8 +72,13 @@ def load_job_descriptions(base_dir: Path = Path("jd")) -> List[Dict[str, Optiona
                 return value
         return None
 
-    for path in sorted(base_dir.glob("*.md")):
-        raw_content = path.read_text(encoding="utf-8").strip()
+    supported_suffixes = {".md", ".markdown", ".txt", ".pdf"}
+
+    for path in sorted(base_dir.iterdir()):
+        if path.suffix.lower() not in supported_suffixes or not path.is_file():
+            continue
+
+        raw_content = _load_text_content(path).strip()
         if not raw_content:
             continue
 
@@ -114,7 +143,39 @@ def read_cv_text(cv_path: Path) -> str:
     """Read CV text from the provided path."""
     if not cv_path.exists():
         raise FileNotFoundError(f"CV file not found: {cv_path}")
-    return cv_path.read_text(encoding="utf-8")
+    return _load_text_content(cv_path).strip()
+
+
+def extract_uploaded_cv_text(content: bytes, filename: Optional[str]) -> str:
+    """
+    Extract CV text from uploaded file bytes.
+
+    Supports Markdown/UTF-8 text files and PDF resumes using PyPDFLoader.
+    """
+    suffix = Path(filename or "").suffix.lower()
+
+    if suffix == ".pdf":
+        if PyPDFLoader is None:
+            raise ImportError(
+                "PyPDFLoader is required to process PDF files but is not installed."
+            )
+        with NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+            tmp_file.write(content)
+            tmp_path = Path(tmp_file.name)
+        try:
+            return _load_text_content(tmp_path).strip()
+        finally:
+            try:
+                tmp_path.unlink()
+            except FileNotFoundError:
+                pass
+
+    try:
+        return content.decode("utf-8").strip()
+    except UnicodeDecodeError as err:
+        raise ValueError(
+            "CV file must be UTF-8 encoded text/Markdown or a PDF document."
+        ) from err
 
 
 def load_review_instructions(path: Path = REVIEW_INSTRUCTIONS_PATH) -> str:

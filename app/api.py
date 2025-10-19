@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from .chatbot import chat_turn
 from .config import DEFAULT_CHAT_MODEL, DEFAULT_TEMPERATURE
-from .jobs import load_job_descriptions
+from .jobs import extract_uploaded_cv_text, load_job_descriptions
 from .matcher import init_matcher, jobs_indexed, matcher_ready
 
 app = FastAPI(title="CV Matcher Chatbot")
@@ -95,12 +95,9 @@ async def upload_cv(file: UploadFile = File(...)) -> UploadResponse:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
     try:
-        text = content.decode("utf-8")
-    except UnicodeDecodeError as err:
-        raise HTTPException(
-            status_code=400,
-            detail="CV file must be UTF-8 encoded text or Markdown.",
-        ) from err
+        text = extract_uploaded_cv_text(content, file.filename)
+    except (ValueError, ImportError) as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
 
     cv_id = str(uuid4())
     _cv_store[cv_id] = text

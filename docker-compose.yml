@@ -1,0 +1,18 @@
+services:
+  api:
+    build: .
+    container_name: cv-matcher-api
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - job_vector_data:/app/job_vectorstore
+      - hf_cache:/app/.cache/huggingface
+      - ./jd:/app/jd:ro
+      - ./review_instructions.md:/app/review_instructions.md:ro
+    restart: unless-stopped
+
+volumes:
+  job_vector_data:
+  hf_cache:

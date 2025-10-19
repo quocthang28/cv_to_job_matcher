@@ -82,7 +82,7 @@ def classify_tool_intent_tool(query: str) -> str:
         return ""
 
     system_message = (
-        "You are an intent classifier for a career assistant. Respond with exactly one of:\n"
+        "You are an intent classifier for a chatbot assistant. Respond with exactly one of:\n"
         "1. find_relevant_jobs_tool\n"
         "2. review_cv_tool\n"
         "3. '' (empty string)\n\n"
