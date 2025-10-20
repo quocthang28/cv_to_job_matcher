@@ -9,7 +9,7 @@ __all__ = ["classify_tool_intent_tool"]
 
 @tool("classify_tool_intent")
 def classify_tool_intent_tool(query: str) -> str:
-    """Inspect the latest user text and return the tool name to execute next."""
+    """Inspect the latest user text (with optional assistant context) and return the next tool."""
     if not query:
         return ""
 
@@ -19,10 +19,14 @@ def classify_tool_intent_tool(query: str) -> str:
         "2. find_relevant_jobs_tool\n"
         "3. review_cv_tool\n"
         "4. '' (empty string)\n\n"
+        "You receive a short conversation snippet. When present, lines starting with 'Assistant:' describe the "
+        "assistant's latest message, and lines starting with 'User:' describe the user's latest reply. "
+        "Use the assistant context to interpret confirmations or follow-up answers.\n\n"
         "Return 'upload_cv_tool' when the user asks to load their uploaded CV, references their account/user id, "
         "or requests that the assistant remember their resume. "
         "Return 'find_relevant_jobs_tool' only when the user is sharing CV/resume text, "
-        "asking for job matching, or seeking job recommendations. Return 'review_cv_tool' "
+        "asking for job matching, agreeing to a job search suggestion, or seeking job recommendations. "
+        "Return 'review_cv_tool' "
         "when the user is asking for CV/resume feedback, critique, or improvements. "
         "Return '' for general chit-chat, greetings, or anything unrelated to job matching "
         "or resume reviews."

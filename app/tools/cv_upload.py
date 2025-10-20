@@ -1,11 +1,11 @@
-"""Tool for retrieving CVs from the backend and summarizing them."""
+"""Tool for retrieving CVs from the mock backend store and summarizing them."""
 
 from typing import Dict
 
-import httpx
 from langchain_core.tools import tool
 
-from ..config import MOCK_BACKEND_URL, get_chat_model
+from ..config import get_chat_model
+from ..mock_backend import fetch_mock_user_cv
 
 __all__ = ["upload_cv_tool"]
 
@@ -58,36 +58,37 @@ def upload_cv_tool(user_id: str) -> Dict[str, str]:
             "cv_text": "",
         }
 
-    backend_base = MOCK_BACKEND_URL.rstrip("/")
     try:
-        response = httpx.get(f"{backend_base}/users/{user_id}/cv", timeout=10.0)
-        response.raise_for_status()
-    except httpx.HTTPStatusError as err:
-        return {
-            "message": f"Backend returned an error while fetching the CV: {err}.",
-            "user_id": user_id,
-            "cv_text": "",
-        }
-    except httpx.HTTPError as err:
-        return {
-            "message": f"Unable to reach the backend service: {err}.",
-            "user_id": user_id,
-            "cv_text": "",
-        }
-
-    try:
-        payload = response.json()
+        payload = fetch_mock_user_cv(user_id)
     except ValueError:
         return {
-            "message": "Received an invalid response from the backend while retrieving the CV.",
+            "message": "Please provide your user id so I can retrieve your resume.",
+            "user_id": "",
+            "cv_text": "",
+        }
+    except KeyError:
+        return {
+            "message": f"I couldn't find a saved CV for user '{user_id}'.",
+            "user_id": user_id,
+            "cv_text": "",
+        }
+    except FileNotFoundError as err:
+        return {
+            "message": f"The configured CV file is missing: {err}.",
+            "user_id": user_id,
+            "cv_text": "",
+        }
+    except RuntimeError as err:
+        return {
+            "message": f"Unable to read the configured CV: {err}.",
             "user_id": user_id,
             "cv_text": "",
         }
 
-    cv_text = payload.get("cv_text")
-    if not isinstance(cv_text, str) or not cv_text.strip():
+    cv_text = payload.get("cv_text") or ""
+    if not cv_text.strip():
         return {
-            "message": "The backend did not return any CV content. Please try uploading again.",
+            "message": "The stored CV did not contain any text. Please upload a fresh copy.",
             "user_id": user_id,
             "cv_text": "",
         }

@@ -22,7 +22,7 @@ Verdant Kitchen Collective is a fast-growing portfolio of plant-based grab-and-g
 - Strong presentation skills with the ability to translate culinary trends into business cases.  
 - HACCP certification and knowledge of emerging protein technologies preferred.
 
-## Compensation & Benefits
+## Benefits
 - Salary range: $140,000 – $170,000 plus annual profit-sharing.  
 - Stock options, wellness stipend, and cafeteria plan for culinary experimentation.  
 - Relocation assistance and continuing education allowances.

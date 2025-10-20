@@ -22,7 +22,7 @@ Meridian Archives Consortium partners with museums and libraries to preserve end
 - Track record of leading cross-institution initiatives and managing project budgets.  
 - Experience collaborating with Indigenous communities on culturally sensitive materials preferred.
 
-## Compensation & Benefits
+## Benefits
 - Salary range: $90,000 – $115,000 with annual merit increases.  
 - Generous PTO, commuter benefits, and tuition reimbursement.  
 - Access to consortium research facilities and conference sponsorships.

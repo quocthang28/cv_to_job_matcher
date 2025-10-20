@@ -22,7 +22,7 @@ OrbitWorks helps distributed teams streamline knowledge sharing. We are searchin
 - Understanding of responsive web design, complex data visualization, and handoff to engineering.  
 - Excellent storytelling skills and comfort presenting to executive stakeholders.
 
-## Compensation & Benefits
+## Benefits
 - Salary range: $135,000 – $160,000 plus equity.  
 - Remote-first culture with flexible time off and quarterly retreats.  
 - Health, dental, vision, 401(k) match, and annual professional development stipend.

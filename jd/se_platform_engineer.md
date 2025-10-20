@@ -22,7 +22,7 @@ VectorScale delivers ML-driven analytics for enterprise retailers. We are expand
 - Experience managing observability stacks (Prometheus, Grafana, Tempo) and IaC (Pulumi/Terraform).  
 - Strong communication skills to drive adoption of platform initiatives.
 
-## Compensation & Benefits
+## Benefits
 - Salary range: $145,000 – $175,000 base plus 10% annual bonus.  
 - Employee equity plan, 12 weeks paid parental leave, and commuter benefits.  
 - Dedicated learning budget and mentorship opportunities.

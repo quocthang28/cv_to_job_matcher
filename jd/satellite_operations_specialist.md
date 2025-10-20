@@ -22,7 +22,7 @@ OrbitalVantage Labs operates a constellation of low Earth orbit microsatellites 
 - Ability to work rotating shifts and support off-hours incident response.  
 - Active DoD Secret clearance or ability to obtain within 6 months.
 
-## Compensation & Benefits
+## Benefits
 - Salary range: $95,000 – $125,000 plus night shift differential.  
 - Equity grants, comprehensive health benefits, and 401(k) with company contribution.  
 - Home office stipend and annual professional development budget.

@@ -22,7 +22,7 @@ PulseWave is launching a new music discovery app centered on short-form video st
 - Familiarity with Lottie, Spine, or other animation export workflows for engineering handoff.  
 - Portfolio demonstrating motion storytelling that elevates brand identity.
 
-## Compensation & Benefits
+## Benefits
 - Salary range: $110,000 – $135,000 plus stock options.  
 - Studio environment with access to cutting-edge creative tools and production gear.  
 - Comprehensive benefits, artist-in-residence program, and weekly creative workshops.

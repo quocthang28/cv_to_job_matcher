@@ -22,7 +22,7 @@ Meridian Systems is scaling its cloud-native logistics platform and seeking a Se
 - Experience with container orchestration (Kubernetes) and service mesh patterns.  
 - Excellent communication skills for working across engineering and product stakeholders.
 
-## Compensation & Benefits
+## Benefits
 - Salary range: $155,000 – $185,000 base plus equity.  
 - Comprehensive health, dental, and vision coverage.  
 - 401(k) with company match, annual learning stipend, and flexible PTO.

@@ -22,7 +22,7 @@ LedgerLeap simplifies treasury workflows for high-growth startups. We need a UX 
 - Familiarity with accessibility and compliance considerations in financial applications.  
 - Ability to collaborate closely with designers, PMs, and engineers in a fast-paced environment.
 
-## Compensation & Benefits
+## Benefits
 - Salary range: $120,000 – $145,000 plus annual bonus.  
 - Equity grants, commuter stipend, and wellness reimbursement.  
 - Comprehensive insurance, mental health support, and 16 weeks parental leave.

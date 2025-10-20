@@ -2,6 +2,7 @@
 
 from .matcher import (
     CVJobMatcher,
+    ingest_job_content,
     init_matcher,
     jobs_indexed,
     matcher_ready,
@@ -14,5 +15,5 @@ __all__ = [
     "match_jobs",
     "matcher_ready",
     "jobs_indexed",
+    "ingest_job_content",
 ]
-

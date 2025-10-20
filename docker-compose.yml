@@ -1,15 +1,19 @@
 services:
   api:
+    image: chatbot
     build: .
-    container_name: cv-matcher-api
+    container_name: chatbot
     env_file:
       - .env
+    environment:
+      HF_HUB_DISABLE_HF_TRANSFER: "1"
     ports:
       - "8000:8000"
     volumes:
       - job_vector_data:/app/job_vectorstore
       - hf_cache:/app/.cache/huggingface
       - ./jd:/app/jd:ro
+      - ./cv:/app/cv:ro
       - ./review_instructions.md:/app/review_instructions.md:ro
     restart: unless-stopped
 

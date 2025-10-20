@@ -4,9 +4,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from langchain_core.documents import Document
+from langchain_core.embeddings import Embeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
-from langchain_huggingface import HuggingFaceEmbeddings
+from sentence_transformers import SentenceTransformer
 
 from ..config import DEFAULT_TOP_K, PERSIST_DIR
 from ..jobs import load_job_descriptions
@@ -14,11 +15,39 @@ from ..jobs import load_job_descriptions
 _matcher_instance: Optional["CVJobMatcher"] = None
 _matcher_jobs: List[Dict[str, Optional[str]]] = []
 
+
+class SentenceTransformerEmbeddings(Embeddings):
+    """Minimal adapter exposing encode methods expected by Chroma."""
+
+    def __init__(self, model_name: str):
+        self._model = SentenceTransformer(model_name)
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        if not texts:
+            return []
+        vectors = self._model.encode(
+            texts,
+            batch_size=32,
+            normalize_embeddings=True,
+            convert_to_numpy=True,
+        )
+        return vectors.tolist()
+
+    def embed_query(self, text: str) -> List[float]:
+        vectors = self._model.encode(
+            [text],
+            batch_size=1,
+            normalize_embeddings=True,
+            convert_to_numpy=True,
+        )
+        return vectors[0].tolist()
+
+
 class CVJobMatcher:
     """Encapsulates vector-store creation and similarity search against job data."""
 
     def __init__(self, persist_directory: Path = PERSIST_DIR):
-        self.embeddings = HuggingFaceEmbeddings(
+        self.embeddings = SentenceTransformerEmbeddings(
             model_name="sentence-transformers/all-MiniLM-L6-v2"
         )
         self.persist_directory = Path(persist_directory)
@@ -38,6 +67,9 @@ class CVJobMatcher:
             except Exception:
                 # Existing directory but no usable data; will rebuild on init.
                 self.vectorstore = None
+        else:
+            self.persist_directory.mkdir(parents=True, exist_ok=True)
+            # Vector store will be created lazily on first write.
 
     def initialize_job_database(self, jobs: List[Dict[str, Optional[str]]]) -> None:
         """Create (or rebuild) the persistent vector store with job descriptions."""
@@ -79,6 +111,60 @@ class CVJobMatcher:
             persist_directory=str(self.persist_directory),
         )
         print(f"✓ Initialized job database with {len(jobs)} jobs")
+
+    def _ensure_vectorstore(self) -> Chroma:
+        """Return a ready Chroma instance, creating one when necessary."""
+        if self.vectorstore is None:
+            self.vectorstore = Chroma(
+                embedding_function=self.embeddings,
+                collection_name="job_descriptions",
+                persist_directory=str(self.persist_directory),
+            )
+        return self.vectorstore
+
+    def ingest_job(self, job_id: str, raw_content: str) -> Dict[str, Any]:
+        """Add or update a single job posting inside the vector store."""
+        job_id = job_id.strip()
+        if not job_id:
+            raise ValueError("job_id must not be empty.")
+
+        content = raw_content.strip()
+        if not content:
+            raise ValueError("content must not be empty.")
+
+        title = next(
+            (
+                line.lstrip("#").strip()
+                for line in content.splitlines()
+                if line.strip()
+            ),
+            None,
+        )
+        job_text = f"Job ID: {job_id}\n\n{content}"
+        metadata = {
+            "job_id": job_id,
+            "title": title or job_id,
+            "company": None,
+            "location": None,
+            "category": None,
+            "salary": None,
+            "source": "ingest_api",
+        }
+
+        document = Document(page_content=job_text, metadata=metadata)
+        splits = self.text_splitter.split_documents([document])
+        store = self._ensure_vectorstore()
+        # Remove existing documents for this job to prevent duplicates.
+        store.delete(where={"job_id": job_id})
+        store.add_documents(splits)
+        store.persist()
+
+        return {
+            "job_id": job_id,
+            "title": metadata["title"],
+            "description": content,
+            "chunks_added": len(splits),
+        }
 
     def match_cv_to_jobs(self, cv_text: str, top_k: int = DEFAULT_TOP_K) -> List[Dict[str, Any]]:
         """Return top-K matching jobs for the provided CV text."""
@@ -159,3 +245,37 @@ def matcher_ready() -> bool:
 def jobs_indexed() -> int:
     """Return the number of jobs currently cached from the last initialization."""
     return len(_matcher_jobs)
+
+
+def ingest_job_content(
+    job_id: str,
+    content: str,
+    *,
+    matcher: Optional[CVJobMatcher] = None,
+) -> Dict[str, Any]:
+    """Ingest a single job description into the persisted vector store."""
+    global _matcher_instance, _matcher_jobs
+
+    if matcher is None:
+        if _matcher_instance is None:
+            matcher = CVJobMatcher()
+            _matcher_instance = matcher
+        else:
+            matcher = _matcher_instance
+
+    result = matcher.ingest_job(job_id, content)
+
+    job_entry = {
+        "id": result["job_id"],
+        "title": result.get("title"),
+        "company": None,
+        "location": None,
+        "category": None,
+        "salary": None,
+        "description": result.get("description"),
+        "path": "ingest_api",
+    }
+    _matcher_jobs = [job for job in _matcher_jobs if job.get("id") != job_entry["id"]]
+    _matcher_jobs.append(job_entry)
+
+    return result

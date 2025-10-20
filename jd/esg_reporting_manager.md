@@ -22,7 +22,7 @@ TerraForge Industries designs and manufactures precision components for the rene
 - Excellent stakeholder management skills across technical and executive teams.  
 - CPA, CFA, or ISSP-SA certification is a plus.
 
-## Compensation & Benefits
+## Benefits
 - Salary range: $125,000 – $150,000 with annual performance bonus.  
 - 401(k) with 5% match, comprehensive health coverage, and paid parental leave.  
 - Budget for professional certifications and sustainability conferences.

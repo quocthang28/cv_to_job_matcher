@@ -22,7 +22,7 @@ HomeHype connects creators with sustainable home goods brands. We are looking fo
 - Strong copywriting skills and ability to adapt tone to emerging platform trends.  
 - Experience managing budgets, agency relationships, and creator contracts.
 
-## Compensation & Benefits
+## Benefits
 - Salary range: $95,000 – $120,000 plus quarterly bonus.  
 - Equity participation, commuter benefits, and unlimited PTO.  
 - Health, dental, vision, and dedicated budget for professional development.

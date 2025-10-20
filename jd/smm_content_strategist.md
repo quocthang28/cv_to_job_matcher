@@ -22,7 +22,7 @@ SyncMetrics delivers real-time ops analytics for SaaS finance teams. We’re hir
 - Comfort interpreting pipeline metrics and tying social KPIs to revenue outcomes.  
 - Experience coordinating with subject-matter experts and turning complex topics into compelling content.
 
-## Compensation & Benefits
+## Benefits
 - Salary range: $85,000 – $105,000 USD plus annual bonus.  
 - Remote-first culture, flexible working hours, and co-working allowance.  
 - Comprehensive health coverage, RRSP/401(k) match, and annual education stipend.

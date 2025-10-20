@@ -1,16 +1,14 @@
-"""Minimal HTTP mock backend that mimics an external CV service."""
+"""Utilities that provide mock CV content for local development."""
 
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
 
-from fastapi import FastAPI, HTTPException
-
-try:  # When executed as `python -m app.mock_backend`
+try:  # Reuse helper when executed as module or script.
     from .jobs import read_cv_text
-except ImportError:  # pragma: no cover
+except ImportError:  # pragma: no cover - fallback when running as script.
     from jobs import read_cv_text  # type: ignore
 
-app = FastAPI(title="Mock CV Backend", version="0.1.0")
+__all__ = ["MOCK_USER_CV_MAP", "fetch_mock_user_cv", "get_mock_user_cv_text"]
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _CV_DIRECTORY = _PROJECT_ROOT / "cv"
@@ -23,40 +21,43 @@ MOCK_USER_CV_MAP: Dict[str, Path] = {
 }
 
 
-@app.get("/health", tags=["meta"])
-def healthcheck() -> Dict[str, str]:
-    """Report service readiness just like a real backend would."""
-    return {"status": "ok"}
+def fetch_mock_user_cv(user_id: str) -> Dict[str, str]:
+    """
+    Return the mock CV payload for a given user id.
 
+    Raises:
+        ValueError: if user_id is blank.
+        KeyError: if no mock CV is configured for the user.
+        FileNotFoundError: if the configured file is missing.
+        RuntimeError: if reading the CV content fails.
+    """
+    if not user_id or not user_id.strip():
+        raise ValueError("user_id must not be empty.")
 
-@app.get("/users/{user_id}/cv", tags=["cv"])
-def get_user_cv_by_id(user_id: str) -> Dict[str, str]:
-    """Retrieve CV content based on the mocked user-to-file mapping."""
-    cv_path = MOCK_USER_CV_MAP.get(user_id)
+    normalized_user_id = user_id.strip()
+    cv_path = MOCK_USER_CV_MAP.get(normalized_user_id)
     if cv_path is None:
-        raise HTTPException(status_code=404, detail="CV not found for this user.")
+        raise KeyError(f"No CV configured for user '{normalized_user_id}'.")
 
     if not cv_path.exists() or not cv_path.is_file():
-        raise HTTPException(status_code=500, detail=f"Configured CV missing: {cv_path}")
+        raise FileNotFoundError(f"Configured CV missing: {cv_path}")
 
     try:
         cv_text = read_cv_text(cv_path)
-    except Exception as err:
-        raise HTTPException(status_code=500, detail=f"Failed to read CV: {err}") from err
+    except Exception as err:  # pragma: no cover - defensive read path.
+        raise RuntimeError(f"Failed to read CV '{cv_path}': {err}") from err
 
     return {
-        "user_id": user_id,
+        "user_id": normalized_user_id,
         "cv_path": str(cv_path),
         "cv_text": cv_text,
     }
 
 
-if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run(
-        "app.mock_backend:app",
-        host="0.0.0.0",
-        port=8080,
-        reload=False,
-    )
+def get_mock_user_cv_text(user_id: str) -> Optional[str]:
+    """Convenience wrapper returning just the CV text or None on failure."""
+    try:
+        payload = fetch_mock_user_cv(user_id)
+    except (ValueError, KeyError, FileNotFoundError, RuntimeError):
+        return None
+    return payload.get("cv_text")

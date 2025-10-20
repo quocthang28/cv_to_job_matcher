@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from .chatbot import chat_turn
 from .config import DEFAULT_CHAT_MODEL, DEFAULT_TEMPERATURE
 from .jobs import load_job_descriptions
-from .semantic_search import init_matcher, jobs_indexed, matcher_ready
+from .semantic_search import ingest_job_content, init_matcher, jobs_indexed, matcher_ready
 
 app = FastAPI(title="CV Matcher Chatbot")
 
@@ -33,6 +33,18 @@ class ChatResponse(BaseModel):
     user_id: str
     reply: str
     intermediate_steps: Optional[List[Dict[str, Any]]] = None
+
+
+class IngestRequest(BaseModel):
+    job_id: str
+    job_detail: str
+
+
+class IngestResponse(BaseModel):
+    job_id: str
+    title: str
+    chunks_indexed: int
+    total_jobs_indexed: int
 
 
 @app.on_event("startup")
@@ -97,12 +109,11 @@ async def chat_endpoint(request: ChatRequest) -> ChatResponse:
         raise HTTPException(status_code=500, detail=str(err)) from err
 
     intermediate_steps: List[Dict[str, Any]] = []
-    for action, output in result.get("intermediate_steps", []):
+    for action, _tool_output in result.get("intermediate_steps", []):
         intermediate_steps.append(
             {
                 "tool": getattr(action, "tool", "unknown"),
                 "input": getattr(action, "tool_input", ""),
-                "output": output,
             }
         )
 
@@ -111,4 +122,22 @@ async def chat_endpoint(request: ChatRequest) -> ChatResponse:
         user_id=request.user_id,
         reply=reply,
         intermediate_steps=intermediate_steps or None,
+    )
+
+
+@app.post("/ingest", response_model=IngestResponse)
+def ingest_endpoint(request: IngestRequest) -> IngestResponse:
+    """Ingest or update a job description in the vector store."""
+    try:
+        result = ingest_job_content(request.job_id, request.job_detail)
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err)) from err
+    except Exception as err:  # pragma: no cover - defensive catch for runtime issues.
+        raise HTTPException(status_code=500, detail=str(err)) from err
+
+    return IngestResponse(
+        job_id=result["job_id"],
+        title=result.get("title") or result["job_id"],
+        chunks_indexed=int(result.get("chunks_added", 0)),
+        total_jobs_indexed=jobs_indexed(),
     )

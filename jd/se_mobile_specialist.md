@@ -22,7 +22,7 @@ LumaFit Labs builds connected fitness experiences that bridge in-app coaching wi
 - Familiarity with Node.js or Python backends and REST/GraphQL APIs.  
 - Passion for crafting intuitive, inclusive user experiences.
 
-## Compensation & Benefits
+## Benefits
 - Salary range: $125,000 – $150,000 plus annual performance bonus.  
 - Equity grants, wellness stipend, and comprehensive medical coverage.  
 - Flexible hybrid schedule with quarterly on-site collaboration weeks.

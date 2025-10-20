@@ -22,7 +22,7 @@ NexusArcade builds cross-platform gaming experiences and live events. We are sea
 - Ability to travel 10% for live events, conventions, and community meetups.  
 - Passion for gaming culture and emerging interactive formats.
 
-## Compensation & Benefits
+## Benefits
 - Salary range: $78,000 – $95,000 plus discretionary bonus.  
 - Health, dental, vision, and HSA contributions.  
 - Game stipend, travel perks, and opportunities for on-stage event participation.

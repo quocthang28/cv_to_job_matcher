@@ -22,7 +22,7 @@ ResilientCities Group advises coastal municipalities on climate adaptation initi
 - Excellent facilitation skills and experience working with diverse communities.  
 - AICP certification preferred; bilingual Spanish/English a plus.
 
-## Compensation & Benefits
+## Benefits
 - Contract rate: $80 – $95 per hour plus completion bonus.  
 - Health stipend, mobility allowance, and flexible work schedule.  
 - Access to ResilientCities knowledge network and training resources.

@@ -18,6 +18,7 @@ def review_cv_tool(cv_text: str) -> str:
         "give concise, actionable feedback. Highlight strengths, point out areas to "
         "improve (structure, clarity, impact, keywords), and suggest any tailoring "
         "ideas for job applications. Keep tone supportive and professional."
+        "Finally, suggest user if they want you to find some jobs suitable for their profile."
     )
     model = get_cv_reviewer_model()
     result = model.invoke(
@@ -29,4 +30,3 @@ def review_cv_tool(cv_text: str) -> str:
     if hasattr(result, "content"):
         return str(result.content or "").strip()
     return str(result).strip()
-
