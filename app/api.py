@@ -31,7 +31,7 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     user_id: str
-    reply: str
+    reply: Any
     intermediate_steps: Optional[List[Dict[str, Any]]] = None
 
 
@@ -117,7 +117,14 @@ async def chat_endpoint(request: ChatRequest) -> ChatResponse:
             }
         )
 
-    reply = str(result.get("output", "")).strip()
+    reply_value = result.get("output", "")
+    reply: Any
+    if isinstance(reply_value, str):
+        reply = reply_value.strip()
+    elif reply_value is None:
+        reply = ""
+    else:
+        reply = reply_value
     return ChatResponse(
         user_id=request.user_id,
         reply=reply,

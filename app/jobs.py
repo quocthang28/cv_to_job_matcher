@@ -1,10 +1,10 @@
 """Utilities for loading job descriptions, CV text, and review instructions."""
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Dict, Iterable, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
 
 from .config import REVIEW_INSTRUCTIONS_PATH
 
@@ -16,12 +16,25 @@ except ImportError:  # pragma: no cover - fallback handled at runtime.
 
 _FIELD_ALIASES: Dict[str, List[str]] = {
     "title": ["title", "job title", "role", "position"],
-    "company": ["company", "company name", "employer", "organization"],
+    "company": ["company", "company name", "employer", "organization", "division"],
     "location": ["location", "based in", "work location"],
-    "category": ["category", "department", "team"],
+    "category": ["category", "department", "team", "division"],
     "salary": ["salary", "salary range", "compensation", "pay", "rate"],
+    "division": ["division", "business unit", "practice"],
+    "recruiter": ["recruiter", "hiring manager", "talent partner"],
 }
 _SUPPORTED_SUFFIXES = {".md", ".markdown", ".txt", ".pdf"}
+_SECTION_FIELD_MAP: Dict[str, str] = {
+    "jobsummary": "job_summary",
+    "jobsummaries": "job_summary",
+    "jobdescription": "job_description",
+    "jobdescriptions": "job_description",
+    "jobrequirement": "job_requirements",
+    "jobrequirements": "job_requirements",
+    "education": "education",
+    "skills": "skills",
+    "competencies": "competencies",
+}
 
 
 @dataclass
@@ -36,9 +49,12 @@ class JobDocument:
     salary: Optional[str]
     description: str
     path: Path
+    division: Optional[str] = None
+    recruiter: Optional[str] = None
+    sections: Dict[str, str] = field(default_factory=dict)
 
-    def to_mapping(self) -> Dict[str, Optional[str]]:
-        return {
+    def to_mapping(self) -> Dict[str, Any]:
+        data: Dict[str, Any] = {
             "id": self.identifier,
             "title": self.title,
             "company": self.company,
@@ -48,6 +64,14 @@ class JobDocument:
             "description": self.description,
             "path": str(self.path),
         }
+        if self.division:
+            data["division"] = self.division
+        if self.recruiter:
+            data["recruiter"] = self.recruiter
+        for section_key, section_text in self.sections.items():
+            if section_text:
+                data[section_key] = section_text
+        return data
 
 
 def _load_text_content(path: Path) -> str:
@@ -100,11 +124,15 @@ def _value_from_metadata(metadata: Dict[str, str], key: str) -> Optional[str]:
 
 def _extract_field_from_lines(lines: Iterable[str], alias: str) -> Optional[str]:
     pattern = re.compile(
-        rf"^\s*(?:[-*•]|\d+\.)?\s*{re.escape(alias)}\s*[:|=-]\s*(.+)$",
+        rf"^{re.escape(alias)}\s*(?:[:|=-]\s*|\s+)(.+)$",
         re.IGNORECASE,
     )
     for line in lines:
-        match = pattern.match(line.lstrip("* ").replace("**", ""))
+        cleaned = line.strip()
+        cleaned = re.sub(r"^\s*(?:[-*•]|\d+\.)\s*", "", cleaned)
+        cleaned = cleaned.replace("**", "").replace("__", "")
+        cleaned = cleaned.lstrip("* ").strip()
+        match = pattern.match(cleaned)
         if match:
             candidate = match.group(1).strip()
             if candidate:
@@ -127,6 +155,30 @@ def _extract_structured_field(
         if value:
             return value
     return None
+
+
+def _extract_section_metadata(content: str) -> Dict[str, str]:
+    sections: Dict[str, List[str]] = {}
+    current_heading: Optional[str] = None
+    for line in content.splitlines():
+        heading_match = re.match(r"^(#{2,6})\s+(.*)$", line.strip())
+        if heading_match:
+            current_heading = heading_match.group(2).strip()
+            sections[current_heading] = []
+            continue
+        if current_heading is not None:
+            sections[current_heading].append(line)
+
+    normalized_sections: Dict[str, str] = {}
+    for heading, lines in sections.items():
+        normalized_key = _normalize_key(heading)
+        target_key = _SECTION_FIELD_MAP.get(normalized_key)
+        if not target_key:
+            continue
+        text = "\n".join(lines).strip()
+        if text:
+            normalized_sections[target_key] = text
+    return normalized_sections
 
 
 def _iter_job_files(base_dir: Path) -> Iterator[Path]:
@@ -169,6 +221,15 @@ def _parse_job_document(path: Path) -> Optional[JobDocument]:
     salary = _extract_structured_field(
         key="salary", front_matter=front_matter, lines=lines
     )
+    division = _extract_structured_field(
+        key="division", front_matter=front_matter, lines=lines
+    )
+    recruiter = _extract_structured_field(
+        key="recruiter", front_matter=front_matter, lines=lines
+    )
+    if not company and division:
+        company = division
+    sections = _extract_section_metadata(content)
 
     return JobDocument(
         identifier=path.stem,
@@ -179,12 +240,15 @@ def _parse_job_document(path: Path) -> Optional[JobDocument]:
         salary=salary,
         description=content,
         path=path,
+        division=division,
+        recruiter=recruiter,
+        sections=sections,
     )
 
 
-def load_job_descriptions(base_dir: Path = Path("jd")) -> List[Dict[str, Optional[str]]]:
+def load_job_descriptions(base_dir: Path = Path("jd")) -> List[Dict[str, Any]]:
     """Load job descriptions from Markdown files (structured or free-form)."""
-    jobs: List[Dict[str, Optional[str]]] = []
+    jobs: List[Dict[str, Any]] = []
     if not base_dir.exists():
         return jobs
 

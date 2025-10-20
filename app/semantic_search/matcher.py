@@ -1,5 +1,6 @@
 """Vector-store matcher utilities for CV to job recommendation."""
 
+import hashlib
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -13,7 +14,24 @@ from ..config import DEFAULT_TOP_K, PERSIST_DIR
 from ..jobs import load_job_descriptions
 
 _matcher_instance: Optional["CVJobMatcher"] = None
-_matcher_jobs: List[Dict[str, Optional[str]]] = []
+_matcher_jobs: List[Dict[str, Any]] = []
+_matcher_jobs_signature: Optional[str] = None
+
+
+def _compute_jobs_signature(jobs: List[Dict[str, Any]]) -> str:
+    digest = hashlib.sha1()
+    for job in sorted(jobs, key=lambda item: str(item.get("id", ""))):
+        digest.update(str(job.get("id", "")).encode("utf-8"))
+        digest.update(b"\x00")
+        digest.update(str(job.get("path", "")).encode("utf-8"))
+        digest.update(b"\x00")
+        digest.update(str(job.get("title", "")).encode("utf-8"))
+        digest.update(b"\x00")
+        digest.update(str(job.get("company", "")).encode("utf-8"))
+        digest.update(b"\x00")
+        digest.update(str(job.get("description", "")).encode("utf-8"))
+        digest.update(b"\x00")
+    return digest.hexdigest()
 
 
 class SentenceTransformerEmbeddings(Embeddings):
@@ -71,7 +89,7 @@ class CVJobMatcher:
             self.persist_directory.mkdir(parents=True, exist_ok=True)
             # Vector store will be created lazily on first write.
 
-    def initialize_job_database(self, jobs: List[Dict[str, Optional[str]]]) -> None:
+    def initialize_job_database(self, jobs: List[Dict[str, Any]]) -> None:
         """Create (or rebuild) the persistent vector store with job descriptions."""
         documents: List[Document] = []
         for job in jobs:
@@ -190,12 +208,12 @@ class CVJobMatcher:
 
 
 def init_matcher(
-    jobs: Optional[List[Dict[str, Optional[str]]]] = None,
+    jobs: Optional[List[Dict[str, Any]]] = None,
     *,
     force_reinitialize: bool = False,
 ) -> CVJobMatcher:
     """Initialize (or reuse) the global matcher instance and vector store."""
-    global _matcher_instance, _matcher_jobs
+    global _matcher_instance, _matcher_jobs, _matcher_jobs_signature
 
     if jobs is None:
         jobs = load_job_descriptions()
@@ -205,10 +223,13 @@ def init_matcher(
             "No job descriptions found. Ensure the 'jd' directory has Markdown files."
         )
 
+    current_signature = _compute_jobs_signature(jobs)
+
     if (
         _matcher_instance is not None
         and _matcher_instance.vectorstore is not None
         and not force_reinitialize
+        and _matcher_jobs_signature == current_signature
     ):
         return _matcher_instance
 
@@ -218,6 +239,7 @@ def init_matcher(
 
     _matcher_instance = matcher
     _matcher_jobs = jobs
+    _matcher_jobs_signature = current_signature
     return matcher
 
 

@@ -1,5 +1,6 @@
 """LangChain chatbot orchestration backed by the CV matcher tool."""
 
+import json
 from types import SimpleNamespace
 from typing import Any, Dict, Optional
 
@@ -121,8 +122,23 @@ def _handle_job_search(
         }
 
     tool_result = find_relevant_jobs_tool.invoke({"cv_text": tool_source})
-    reply_text = _stringify_content(tool_result)
-    history.add_ai_message(reply_text)
+
+    reply_payload: Any
+    if isinstance(tool_result, (dict, list)):
+        reply_payload = tool_result
+    else:
+        reply_text = _stringify_content(tool_result)
+        try:
+            reply_payload = json.loads(reply_text)
+        except json.JSONDecodeError:
+            reply_payload = reply_text or {}
+
+    if isinstance(reply_payload, str):
+        history_message = reply_payload
+    else:
+        history_message = json.dumps(reply_payload, ensure_ascii=False)
+    history.add_ai_message(history_message)
+
     if used_backend_cv:
         tool_input_label = "backend_cv"
     elif used_stored_cv or _ensure_cv_text(cv_text):
@@ -131,8 +147,8 @@ def _handle_job_search(
         tool_input_label = "user_message_cv"
     action = SimpleNamespace(tool="find_relevant_jobs_tool", tool_input=tool_input_label)
     return {
-        "output": reply_text,
-        "intermediate_steps": [(action, reply_text)],
+        "output": reply_payload,
+        "intermediate_steps": [(action, tool_result)],
     }
 
 

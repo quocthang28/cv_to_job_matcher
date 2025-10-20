@@ -21,7 +21,23 @@ AuroraStream personalizes streaming media experiences for 50M+ monthly users. We
 - Strong statistical reasoning and ability to communicate insights to non-technical partners.
 
 ## Education
+- Bachelor's or Master's degree in Computer Science, Machine Learning, Statistics, or related field.
+- Ph.D. in Machine Learning or related discipline is a plus.
 
 ## Skills
+- **Programming Languages:** Python, SQL
+- **ML Frameworks:** PyTorch, TensorFlow, Scikit-learn
+- **Distributed Computing:** Apache Spark, Dask
+- **MLOps Tools:** MLflow, Feature Store, Kubernetes, SageMaker, Docker
+- **Experimentation:** A/B testing frameworks, statistical analysis
+- **Data Processing:** Pandas, NumPy, data pipeline orchestration
+- **Version Control:** Git, CI/CD pipelines
+- **Monitoring:** Model observability tools, drift detection systems
 
 ## Competencies
+- **Technical Leadership:** Ability to design and architect scalable ML systems end-to-end.
+- **Collaboration:** Strong cross-functional communication with data scientists, engineers, and product teams.
+- **Problem Solving:** Data-driven decision making with strong analytical and debugging skills.
+- **Adaptability:** Comfortable working in fast-paced environments with evolving requirements.
+- **Communication:** Ability to explain complex ML concepts to non-technical stakeholders.
+- **Ownership:** Takes initiative and drives projects from conception to production deployment.
